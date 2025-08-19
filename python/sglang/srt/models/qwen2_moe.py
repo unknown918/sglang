@@ -467,11 +467,14 @@ class Qwen2MoeModel(nn.Module):
 
         aux_hidden_states = []
         if forward_batch.can_run_afd_overlap:
-            hidden_states, residual = model_forward_afd(layers=self.layers,
-                    positions=positions,
-                    forward_batch=forward_batch,
-                    hidden_states=hidden_states,
-                    residual=residual)
+            hidden_states, residual = model_forward_afd(
+                layers=self.layers,
+                positions=positions,
+                forward_batch=forward_batch,
+                hidden_states=hidden_states,
+                residual=residual,
+                input_data_scatter_mode=ScatterMode.model_input_output(),
+            )
         elif forward_batch.can_run_tbo:
             hidden_states, residual = model_forward_maybe_tbo(
                 layers=self.layers,

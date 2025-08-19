@@ -38,6 +38,12 @@ from sglang.srt.layers.communicator import LayerCommunicator, ScatterMode
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.layers.afd_type import AFDPerspective
 
+from sglang.srt.layers.communicator import (
+    CommunicateContext,
+    CommunicateSummableTensorPairFn,
+    ScatterMode,
+)
+
 class AFDForwardStage(Enum):
     AFD_FORWARD_STAGE_A = auto()
     AFD_FORWARD_STAGE_F = auto()
@@ -363,7 +369,83 @@ def model_forward_afd_split_inputs(
     forward_batch: ForwardBatch,
     input_data_scatter_mode: ScatterMode,
 ):
-    raise NotImplementedError
+    def _model_forward_afd_split_inputs_raw(
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor,
+        positions: torch.Tensor,
+        forward_batch: ForwardBatch,
+        ) -> List[Dict]:
+        return [
+            dict(
+                **_model_forward_filter_inputs(
+                    hidden_states=hidden_states,
+                    residual=residual,
+                    positions=positions,
+                    output_forward_batch=output_forward_batch,
+                    afd_subbatch_index=afd_subbatch_index,
+                ),
+                **({}),
+            )
+            for afd_subbatch_index, output_forward_batch in enumerate(
+                forward_batch.afd_children
+            )
+        ]
+
+    def _model_forward_filter_inputs(
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor,
+        positions: torch.Tensor,
+        output_forward_batch: ForwardBatch,
+        afd_subbatch_index: int,
+    ) -> Dict:
+        token_slice = slice(*output_forward_batch.afd_parent_token_range)
+        return dict(
+            hidden_states=hidden_states[token_slice],
+            residual=None if residual is None else residual[token_slice],
+            positions=positions[token_slice],
+            forward_batch=output_forward_batch,
+            afd_subbatch_index=afd_subbatch_index,
+        )
+
+    layer_input_scatter_mode = layers[0].layer_scatter_modes.layer_input_mode
+    afd_splitter_scatter_mode = ScatterMode.TP_ATTN_FULL
+    context = CommunicateContext.init_new()
+
+    hidden_states, residual = CommunicateSummableTensorPairFn.execute(
+        hidden_states_input_mode=input_data_scatter_mode,
+        residual_input_mode=input_data_scatter_mode,
+        output_mode=afd_splitter_scatter_mode,
+        hidden_states=hidden_states,
+        residual=residual,
+        forward_batch=forward_batch,
+        context=context,
+    )
+
+    inputs_arr = _model_forward_afd_split_inputs_raw(
+        hidden_states=hidden_states,
+        residual=residual,
+        positions=positions,
+        forward_batch=forward_batch,
+    )
+
+    def _post_transform(hidden_states, residual, forward_batch, **kwargs):
+        hidden_states, residual = CommunicateSummableTensorPairFn.execute(
+            hidden_states_input_mode=afd_splitter_scatter_mode,
+            residual_input_mode=afd_splitter_scatter_mode,
+            output_mode=layer_input_scatter_mode,
+            hidden_states=hidden_states,
+            residual=residual,
+            forward_batch=forward_batch,
+            context=context,
+        )
+        return dict(
+            hidden_states=hidden_states,
+            residual=residual,
+            forward_batch=forward_batch,
+            **kwargs,
+        )
+
+    return [_post_transform(**inputs) for inputs in inputs_arr]
 
 def model_forward_afd(
     layers,

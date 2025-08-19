@@ -533,7 +533,7 @@ class Qwen3MoeDecoderLayer(nn.Module):
 
         if afd_perspective is not None:
             self.layer_communicator = AFDCommunicator(
-                    layer_communicator = self.layer_communicator, 
+                    layer_communicator = self.layer_communicator,
                     perspective=afd_perspective,
                     layer_id=layer_id)
 
@@ -559,16 +559,16 @@ class Qwen3MoeDecoderLayer(nn.Module):
         hidden_states, residual = self.layer_communicator.prepare_mlp(
             hidden_states, residual, forward_batch
         )
-    
+
         return hidden_states, residual
-    
+
     def forward_afd_F(
         self,
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
         residual: torch.Tensor,
     )-> Tuple[torch.Tensor, torch.Tensor]:
-        
+
         hidden_states = self.mlp(hidden_states, forward_batch)
 
         hidden_states, residual = self.layer_communicator.postprocess_layer(
