@@ -297,6 +297,9 @@ class ForwardBatch:
     tbo_parent_token_range: Optional[Tuple[int, int]] = None
     tbo_children: Optional[List[ForwardBatch]] = None
 
+    # For AF disaggregation
+    can_run_afd_overlap: bool = False
+
     @classmethod
     def init_new(
         cls,

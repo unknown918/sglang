@@ -108,6 +108,8 @@ GLOBAL_SERVER_ARGS_KEYS = [
     "weight_loader_disable_mmap",
     "enable_triton_kernel_moe",
     "enable_multimodal",
+    "afd_perspective",
+    "afd_mirco_batch",
 ]
 
 # Put some global args for easy access
