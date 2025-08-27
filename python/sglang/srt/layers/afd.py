@@ -257,7 +257,7 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
             self.free_tensors[x.shape] = []
             free = self.free_tensors[x.shape]
 
-        if len(free) < 100:
+        if len(free) < 15:
             self.key += 2
 
             t = StepMeshTensorCache()
@@ -298,7 +298,7 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
             self.free_tensors[x.shape] = []
             free = self.free_tensors[x.shape]
 
-        if len(free) < 100:
+        if len(free) < 15:
             t = torch.empty_like(x)
         else:
             t = free.pop(0)
