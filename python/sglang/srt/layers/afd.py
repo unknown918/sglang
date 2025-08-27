@@ -188,6 +188,7 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
         self.comm_ids = []
         self.waits = []
         self.free_tensors = {}
+        self.register_buf = {}
 
     def env_def(self, env, v):
         if os.environ.get(env) == None:
@@ -320,7 +321,15 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
         assert len(batches) == 1, "just handle for one worker"
 
         x = batches[0][1][0]
+        key = batches[0][2][0]
         self.comm_ids.append(batches[0][0])
+
+        if self.register_buf.get(key) == None:
+            y = torch.empty_like(x)
+
+            self.f.register_recv_buffer(y, [0], [key])
+
+            self.register_buf[key] = y
 
         return x.clone()
 
