@@ -147,6 +147,7 @@ from sglang.srt.utils import (
     disable_request_logging,
     get_available_gpu_memory,
     get_bool_env_var,
+    get_int_env_var,
     get_zmq_socket,
     is_cpu,
     kill_itself_when_parent_died,
@@ -494,8 +495,8 @@ class Scheduler(
         self.send_to_ffn, self.recv_from_attn = None, None
         if self.pp_rank == 0 and self.attn_tp_rank == 0:
             # AFD-NOTE: require better init
-            host = '127.0.0.1'
-            port = '65300'
+            host = os.getenv("AFD_SCHED_HOST", "127.0.0.1")
+            port = get_int_env_var("AFD_SCHED_PORT", 65300)
             afd_ipc_name = f"tcp://{host}:{port}"
             if afd_is_attn():
                 self.send_to_ffn = get_zmq_socket(
