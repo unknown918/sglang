@@ -17,8 +17,8 @@ Example:
 Attn
 ```bash
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-# Serving port of ffn, assigned by --port at ffn side
-export AFD_FFN_PORT=<ffn_port>
+# Address of ffn scheduler, necessary for inter-node AFD, default is 127.0.0.1
+export AFD_SCHED_HOST=<ffn_ip>
 
 # 2 new options for AFD
 # --afd-perspective <attn/ffn>
@@ -29,8 +29,9 @@ python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-
 FFN
 ```bash
 export CUDA_VISIBLE_DEVICES=4,5,6,7
+export AFD_SCHED_HOST=<ffn_ip>
 
-python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-schedule --disable-cuda-graph --port <ffn_port> --skip-server-warmup --watchdog-timeout 3600 --afd-perspective ffn --afd-mirco-batch 3
+python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-schedule --disable-cuda-graph --port <port> --skip-server-warmup --watchdog-timeout 3600 --afd-perspective ffn --afd-mirco-batch 3
 ```
 
 Note:
@@ -47,7 +48,7 @@ Example:
 Attn
 ```bash
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-export AFD_FFN_PORT=<ffn_port>
+export AFD_SCHED_HOST=<ffn_ip>
 
 # RDMA NIC such as "bond0", this will enable StepMesh
 export MLC_INTERFACE=<nic_name>
@@ -66,6 +67,7 @@ python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-
 FFN
 ```bash
 export CUDA_VISIBLE_DEVICES=4,5,6,7
+export AFD_SCHED_HOST=<ffn_ip>
 
 export MLC_INTERFACE=<nic_name>
 export DMLC_PS_ROOT_URI=<root_ip>
@@ -73,7 +75,7 @@ export DMLC_NUM_SERVER=1
 export DMLC_NUM_WORKER=1
 export DMLC_GROUP_SIZE=1
 
-python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-schedule --disable-cuda-graph --port <ffn_port> --skip-server-warmup --watchdog-timeout 3600 --afd-perspective ffn --afd-mirco-batch 3
+python -m sglang.launch_server --model-path <Qwen3-moe model> --disable-overlap-schedule --disable-cuda-graph --port <port> --skip-server-warmup --watchdog-timeout 3600 --afd-perspective ffn --afd-mirco-batch 3
 ```
 
 ---
