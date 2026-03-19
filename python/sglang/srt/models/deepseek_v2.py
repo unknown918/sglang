@@ -553,9 +553,10 @@ class DeepseekV2MoE(nn.Module):
             else:
                 return self.forward_normal(
                     hidden_states,
+                    forward_batch,
                     should_allreduce_fusion,
                     use_reduce_scatter,
-                    gemm_output_zero_allocator,
+                    gemm_output_zero_allocator
                 )
         else:
             return self.forward_deepep(hidden_states, forward_batch)
@@ -596,6 +597,7 @@ class DeepseekV2MoE(nn.Module):
     def forward_normal(
         self,
         hidden_states: torch.Tensor,
+        forward_batch: Optional[ForwardBatch] = None,
         should_allreduce_fusion: bool = False,
         use_reduce_scatter: bool = False,
         gemm_output_zero_allocator: BumpAllocator = None,
