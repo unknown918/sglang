@@ -178,6 +178,110 @@ else:
 logger = logging.getLogger(__name__)
 
 
+class GPUTimer():
+    def __init__(
+        self,
+        num_layers: int,
+        num_buffers: int,
+        max_tokens: int = 1024 * 1024,
+        max_iterations: int = 10000
+    ):
+        self.num_layers = num_layers
+        self.num_buffers = num_buffers
+        self.max_tokens = max_tokens
+        self.max_iterations = max_iterations
+
+        self.num_tokens = 0
+        self.num_iterations = 0
+
+        self.prefix_sum = torch.zeros(
+            self.max_iterations,
+            dtype=torch.int32,
+            device="cpu"
+        )  # tokens per iter
+        self.profile_time_buffer = torch.empty(
+            (self.num_layers, self.max_iterations),  # (num_layers, max_tokens),
+            dtype=torch.float64,
+            device="cpu"
+        )  # 30 * 1M * 8B = 240MB
+
+        self.copy_stream = (
+            torch.cuda.Stream()
+            if _is_cuda or envs.SGLANG_NPU_USE_MULTI_STREAM.get()
+            else None
+        )
+        self.profile_data_buffer = torch.zeros(
+            (self.num_layers, self.max_tokens, 6),  # (num_layers, max_tokens, num_experts),
+            pin_memory=True,
+            dtype=torch.int32,
+            device="cpu"
+        )  # 30 * 1M * 6 * 4B = 720MB
+
+        self.start_event = torch.cuda.Event(enable_timing=True)
+        self.end_events = [
+            [torch.cuda.Event(enable_timing=True) for _ in range(num_buffers)]
+            for _ in range(num_layers)
+        ]  # (num_layers, num_buffers)
+
+        self.start_event.record()
+
+    def _collect_data(self, layer_id: int, topk_ids: torch.Tensor) -> None:
+
+        event = self.end_events[layer_id][self.num_iterations % self.num_buffers]
+
+        # buffer is full
+        if self.num_iterations >= self.num_buffers:
+            if event.query():
+                self.profile_time_buffer[layer_id][self.num_iterations - self.num_buffers] \
+                    = self.start_event.elapsed_time(event)
+            else:
+                logger.info(f"Failed to capture correct time stamp at iteration:{self.num_iterations}")
+                self.profile_time_buffer[layer_id][self.num_iterations - self.num_buffers] = -1
+
+        self.end_events[layer_id][self.num_iterations % self.num_buffers].record()
+
+        self.copy_stream.wait_stream(torch.cuda.current_stream())
+
+        # transfer expert ids
+        with torch.cuda.stream(self.copy_stream):
+            start = self.num_tokens
+            end = start + topk_ids.shape[0]
+            self.profile_data_buffer[
+                layer_id,
+                start:end
+            ].copy_(topk_ids, non_blocking=True)
+
+        if layer_id == self.num_layers - 1:
+            if (
+                self.num_iterations >= self.max_iterations
+                or
+                self.num_tokens + topk_ids.shape[0] > self.max_tokens
+            ):
+                self._exit()
+
+            logger.info(f"Iteration: {self.num_iterations} Finished.")
+            self.prefix_sum[self.num_iterations] = topk_ids.shape[0]
+            self.num_tokens += topk_ids.shape[0]
+            self.num_iterations += 1
+
+    def _exit(self):
+        # store results
+        self.copy_stream.synchronize()
+        logger.info(f"Dump expert id statistics of {self.num_tokens} tokens within {self.num_iterations} iterations")
+        filename = f"../results/profile_on_rank{torch.cuda.current_device()}.bin"
+
+        with open(filename, "wb") as f:
+            f.write(self.prefix_sum.numpy().tobytes())
+            f.write(self.profile_data_buffer.numpy().tobytes())
+            f.write(self.profile_time_buffer.numpy().tobytes())
+
+        self.profile_data_buffer.zero_()
+        self.profile_time_buffer.zero_()
+        self.num_tokens = 0
+        self.num_iterations = 0
+        logger.info(f"All buffers are flushed.")
+
+
 class DeepseekV2MLP(nn.Module):
     def __init__(
         self,
@@ -279,8 +383,8 @@ class MoEGate(nn.Module):
                 ):
                     correction_bias_dtype = torch.bfloat16
                 elif _use_aiter and quant_config.get_name() in (
-                    "fp8",
-                    "compressed_tensors",
+                        "fp8",
+                        "compressed_tensors",
                 ):
                     correction_bias_dtype = torch.bfloat16
             self.e_score_correction_bias = nn.Parameter(
@@ -344,7 +448,9 @@ class DeepseekV2MoE(nn.Module):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
         alt_stream: Optional[torch.cuda.Stream] = None,
+        copy_stream: Optional[torch.cuda.Stream] = None,
         is_nextn: bool = False,
+        timer: GPUTimer = None
     ):
         super().__init__()
         self.tp_size = get_tensor_model_parallel_world_size()
@@ -359,7 +465,9 @@ class DeepseekV2MoE(nn.Module):
         self.config = config
         self.layer_id = layer_id
         self.alt_stream = alt_stream
+        self.copy_stream = copy_stream
         self.is_nextn = is_nextn
+        self.timer = timer
 
         if self.tp_size > config.n_routed_experts:
             raise ValueError(
@@ -390,8 +498,8 @@ class DeepseekV2MoE(nn.Module):
 
         self.experts = get_moe_impl_class(quant_config)(
             num_experts=config.n_routed_experts
-            + self.num_fused_shared_experts
-            + get_global_server_args().ep_num_redundant_experts,
+                        + self.num_fused_shared_experts
+                        + get_global_server_args().ep_num_redundant_experts,
             num_fused_shared_experts=self.num_fused_shared_experts,
             top_k=config.num_experts_per_tok + self.num_fused_shared_experts,
             hidden_size=config.hidden_size,
@@ -423,7 +531,7 @@ class DeepseekV2MoE(nn.Module):
             output_format=(
                 TopKOutputFormat.STANDARD
                 if (quant_config is None)
-                and (not get_moe_runner_backend().is_flashinfer_trtllm())
+                   and (not get_moe_runner_backend().is_flashinfer_trtllm())
                 else None
             ),
         )
@@ -444,22 +552,22 @@ class DeepseekV2MoE(nn.Module):
                 **(
                     dict(tp_rank=0, tp_size=1)
                     if get_moe_a2a_backend().is_deepep()
-                    or get_moe_a2a_backend().is_mooncake()
-                    or get_moe_a2a_backend().is_nixl()
-                    or get_moe_a2a_backend().is_mori()
-                    or get_moe_a2a_backend().is_ascend_fuseep()
-                    or get_moe_a2a_backend().is_flashinfer()
-                    or should_use_flashinfer_cutlass_moe_fp4_allgather()
+                       or get_moe_a2a_backend().is_mooncake()
+                       or get_moe_a2a_backend().is_nixl()
+                       or get_moe_a2a_backend().is_mori()
+                       or get_moe_a2a_backend().is_ascend_fuseep()
+                       or get_moe_a2a_backend().is_flashinfer()
+                       or should_use_flashinfer_cutlass_moe_fp4_allgather()
                     else {}
                 ),
             )
             is_packed_weight = hasattr(
                 self.shared_experts.gate_up_proj.quant_method, "quant_config"
             ) and self.shared_experts.gate_up_proj.quant_method.quant_config.get_name() in {
-                "awq",
-                "awq_marlin",
-                "moe_wna16",
-            }
+                                   "awq",
+                                   "awq_marlin",
+                                   "moe_wna16",
+                               }
             self.shared_experts_is_int8 = (
                 not is_packed_weight
                 and self.shared_experts.gate_up_proj.weight.dtype == torch.int8
@@ -524,7 +632,7 @@ class DeepseekV2MoE(nn.Module):
             x.data
             for name, x in self.experts.named_parameters()
             if name not in ["correction_bias"]
-            and filter_moe_weight_param_global_expert(
+               and filter_moe_weight_param_global_expert(
                 name, x, self.experts.num_local_experts
             )
         ]
@@ -621,13 +729,15 @@ class DeepseekV2MoE(nn.Module):
             shared_output = None
             topk_output = self.topk.empty_topk_output(hidden_states.device)
 
+        if forward_batch.forward_mode.is_prefill():
+            self.timer._collect_data(layer_id=self.layer_id, topk_ids=topk_output.topk_ids)
+
         if self._fuse_shared_experts_inside_sbo:
             shared_output = None
 
             def _pre_combine_hook(
                 dispatcher: BaseDispatcher, combine_input: CombineInput
             ):
-
                 nonlocal shared_output
                 self.alt_stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self.alt_stream):
@@ -1099,7 +1209,7 @@ class DeepseekV2AttentionMLA(
         self.num_heads = num_heads
         assert num_heads % attn_tp_size == 0
         self.num_local_heads = num_heads // attn_tp_size
-        self.scaling = self.qk_head_dim**-0.5
+        self.scaling = self.qk_head_dim ** -0.5
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
         self.kv_cache_dtype = get_global_server_args().kv_cache_dtype
@@ -1458,7 +1568,7 @@ class DeepseekV2AttentionMLA(
     def rebuild_cp_kv_cache(self, latent_cache, forward_batch, k_nope, k_pe):
         # support allgather+rerrange
         latent_cache[..., : self.kv_lora_rank] = k_nope.squeeze(1)
-        latent_cache[..., self.kv_lora_rank :] = k_pe.squeeze(1)
+        latent_cache[..., self.kv_lora_rank:] = k_pe.squeeze(1)
         latent_cache_output = cp_all_gather_rerange_output(
             latent_cache.contiguous(),
             self.cp_size,
@@ -1466,7 +1576,7 @@ class DeepseekV2AttentionMLA(
             torch.cuda.current_stream(),
         )
         k_nope = latent_cache_output[..., : self.kv_lora_rank].unsqueeze(1)
-        k_pe = latent_cache_output[..., self.kv_lora_rank :].unsqueeze(1)
+        k_pe = latent_cache_output[..., self.kv_lora_rank:].unsqueeze(1)
         return k_nope, k_pe
 
     @staticmethod
@@ -1492,6 +1602,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         is_nextn: bool = False,
         prefix: str = "",
         alt_stream: Optional[torch.cuda.Stream] = None,
+        timer: GPUTimer = None
     ) -> None:
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -1555,7 +1666,7 @@ class DeepseekV2DecoderLayer(nn.Module):
                 prefix=add_prefix("mlp", prefix),
                 layer_id=self.layer_id,
                 alt_stream=alt_stream,
-                is_nextn=is_nextn,
+                timer=timer
             )
         else:
             if enable_moe_dense_fully_dp():
@@ -1634,8 +1745,8 @@ class DeepseekV2DecoderLayer(nn.Module):
                     and getattr(self.self_attn, "fused_qkv_a_proj_with_mqa", None)
                     is not None
                     and getattr(
-                        self.self_attn.fused_qkv_a_proj_with_mqa, "weight", None
-                    )
+                    self.self_attn.fused_qkv_a_proj_with_mqa, "weight", None
+                )
                     is not None
                     and self.self_attn.fused_qkv_a_proj_with_mqa.weight.dtype
                     == getattr(torch, "float8_e4m3fn", None)
@@ -1804,6 +1915,15 @@ class DeepseekV2Model(nn.Module):
             else None
         )
 
+        self.timer = GPUTimer(
+            num_layers=config.num_hidden_layers,
+            num_buffers=32,  # ring buffer
+            max_tokens=1024 * 1024,
+            max_iterations=10000
+        )
+
+        logger.info("GPU timer created.")
+
         self.layers, self.start_layer, self.end_layer = make_layers(
             config.num_hidden_layers,
             lambda idx, prefix: DeepseekV2DecoderLayer(
@@ -1812,6 +1932,7 @@ class DeepseekV2Model(nn.Module):
                 quant_config=quant_config,
                 prefix=prefix,
                 alt_stream=self.alt_stream,
+                timer=self.timer
             ),
             pp_rank=self.pp_group.rank_in_group,
             pp_size=self.pp_group.world_size,
@@ -1939,7 +2060,7 @@ class DeepseekV2Model(nn.Module):
                 device=device,
             )
             if has_gemm_output_zero_allocator
-            and self.gemm_output_zero_allocator_size > 0
+               and self.gemm_output_zero_allocator_size > 0
             else None
         )
 
@@ -2000,7 +2121,7 @@ class DeepseekV2Model(nn.Module):
 
         if normal_end_layer != self.end_layer:
             hidden_states, residual = model_forward_maybe_tbo(
-                layers=self.layers[normal_end_layer : self.end_layer],
+                layers=self.layers[normal_end_layer: self.end_layer],
                 enable_tbo=True,
                 positions=positions,
                 forward_batch=forward_batch,
@@ -2008,7 +2129,7 @@ class DeepseekV2Model(nn.Module):
                 residual=residual,
                 input_data_scatter_mode=self.layers[
                     normal_end_layer - 1
-                ].layer_scatter_modes.layer_output_mode,
+                    ].layer_scatter_modes.layer_output_mode,
                 zero_allocator=zero_allocator,
             )
 
