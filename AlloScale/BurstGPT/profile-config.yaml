@@ -1,0 +1,24 @@
+model_path: "../../deepseek-ai/DeepSeek-V2"
+data_path: "loader/shareGPT.json"
+log_path: "server_log.json"
+detail_log_path: "detail_server_log.json"
+
+server:
+  stream: true
+  ignore_eos: false
+  qps: 1.0
+  host: "localhost"
+  port: 30000
+  temperature: 0
+  max_tokens: 128
+  max_num_seqs: 256
+  max_num_batched_tokens: 4096
+
+prompt:
+  seed: 0
+  surplus_prompts_num: 50
+  use_burstgpt: true
+  burstgpt_path: "data/BurstGPT_1.csv"
+  prompt_num: 50
+  conv_or_api: "conv"
+  scale: 1.2344107085

@@ -268,7 +268,7 @@ class GPUTimer():
         # store results
         self.copy_stream.synchronize()
         logger.info(f"Dump expert id statistics of {self.num_tokens} tokens within {self.num_iterations} iterations")
-        filename = f"../results/profile_on_rank{torch.cuda.current_device()}.bin"
+        filename = f"results/profile_on_rank{torch.cuda.current_device()}.bin"
 
         with open(filename, "wb") as f:
             f.write(self.prefix_sum.numpy().tobytes())
