@@ -7,10 +7,13 @@ import asyncio
 import time
 import json
 
-
-async def sglang_inference_call_server(prompt, in_num, out_num, sampled_in_num, sampled_out_num, sleep_time, config,
-                                       logger, event_id):
-    await asyncio.sleep(sleep_time)
+async def sglang_inference_call_server(
+    prompt,
+    in_num, out_num,
+    sampled_in_num, sampled_out_num,
+    sleep_time, config, logger, event_id
+):
+    await asyncio.sleep(sleep_time / 300)
     timeout = aiohttp.ClientTimeout(total=4 * 60 * 60)
 
     host = config.server_config.get('host', 'localhost')
@@ -23,7 +26,12 @@ async def sglang_inference_call_server(prompt, in_num, out_num, sampled_in_num, 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         generation_input = {
             "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
             "stream": config.server_config['stream'],
             "max_tokens": int(out_num),
             "temperature": config.server_config['temperature'],

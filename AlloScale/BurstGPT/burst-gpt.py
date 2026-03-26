@@ -1,8 +1,8 @@
 import sys
 import os
 import yaml
-from utils import ServerOnline, Config
-
+from utils.server import ServerOnline
+from utils.config import Config
 
 if __name__ == "__main__":
     with open("profile-config.yaml", 'r', encoding='utf-8') as f:
@@ -18,9 +18,9 @@ if __name__ == "__main__":
         model_path=full_config.get('model_path'),
         data_path=full_config.get('data_path', "loader/shareGPT.json"),
         backend="sglang",
-        log_path=full_config.get('log_path', "./server_log.json"),
+        log_path=full_config.get('log_path', "server_log.json"),
         config=config,
-        detail_log_path=full_config.get('detail_log_path', "./detail_server_log_1.json")
+        detail_log_path=full_config.get('detail_log_path', "detail_server_log.json")
     )
 
     server.start_profile()

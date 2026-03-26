@@ -278,3 +278,4 @@ sgl-kernel/csrc/**/*_musa/
 *.ply
 *.npz
 deepseek-ai/
+AlloScale/results

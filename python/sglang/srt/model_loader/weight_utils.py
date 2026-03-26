@@ -719,7 +719,7 @@ def safetensors_weights_iterator(
         not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
     )
     for st_file in tqdm(
-        sorted(hf_weights_files)[:30],
+        sorted(hf_weights_files)[:10],
         desc="Loading safetensors checkpoint shards",
         disable=not enable_tqdm,
         bar_format=BAR_FORMAT,

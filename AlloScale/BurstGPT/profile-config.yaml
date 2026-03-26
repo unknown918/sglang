@@ -4,7 +4,7 @@ log_path: "server_log.json"
 detail_log_path: "detail_server_log.json"
 
 server:
-  stream: true
+  stream: false
   ignore_eos: false
   qps: 1.0
   host: "localhost"
@@ -16,9 +16,9 @@ server:
 
 prompt:
   seed: 0
-  surplus_prompts_num: 50
+  surplus_prompts_num: 500
   use_burstgpt: true
   burstgpt_path: "data/BurstGPT_1.csv"
-  prompt_num: 50
+  prompt_num: 500
   conv_or_api: "conv"
   scale: 1.2344107085

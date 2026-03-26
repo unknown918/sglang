@@ -42,7 +42,7 @@ def load_profile(
 if __name__ == "__main__":
     filename = "./profile_on_rank0.bin"
 
-    num_layers = 30
+    num_layers = 10
     max_tokens = 1024 * 1024
     max_iterations = 100
 

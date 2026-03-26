@@ -1919,7 +1919,7 @@ class DeepseekV2Model(nn.Module):
             num_layers=config.num_hidden_layers,
             num_buffers=32,  # ring buffer
             max_tokens=1024 * 1024,
-            max_iterations=10000
+            max_iterations=100
         )
 
         logger.info("GPU timer created.")

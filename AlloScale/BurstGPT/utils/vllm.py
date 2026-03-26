@@ -7,7 +7,13 @@ import asyncio
 import time
 import json
 
-async def vllm_inference_call_server(prompt, in_num, out_num, sampled_in_num, sampled_out_num, sleep_time, config, logger, event_id):
+
+async def vllm_inference_call_server(
+    prompt,
+    in_num, out_num,
+    sampled_in_num, sampled_out_num,
+    sleep_time, config, logger, event_id
+):
     await asyncio.sleep(sleep_time)
     timeout = aiohttp.ClientTimeout(total=4 * 60 * 60)
     print(f"[INFO] Start {event_id}, after sleep: {sleep_time}")
@@ -22,7 +28,8 @@ async def vllm_inference_call_server(prompt, in_num, out_num, sampled_in_num, sa
         first_chunk_time = 0
         start_time = time.perf_counter()
         async with session.post(
-            f"http://{config.server_config['host']}:{config.server_config['port']}/generate", json=generation_input
+            f"http://{config.server_config['host']}:{config.server_config['port']}/generate",
+            json=generation_input
         ) as resp:
             if resp.status != 200:
                 print(f"Error: {resp.status} {resp.reason}")
@@ -46,14 +53,24 @@ async def vllm_inference_call_server(prompt, in_num, out_num, sampled_in_num, sa
 
             else:
                 output = await resp.json()
-            
+
             end_time = time.perf_counter()
             total_chunk_time = end_time - start_time
 
             # should counter the output token length after gather all the outputs
     logger.tick_end(event_id, time.perf_counter())
 
-    save_query_json = {"event_id":event_id, "out_len":len(output["text"][0]), "out_len_expected": int(out_num), "in_len":int(in_num),"sampled_in_num": int(sampled_in_num), "sampled_out_len":int(sampled_out_num), "first_chunk_time":first_chunk_time, "total_chunk_time":total_chunk_time, "record_time":time.perf_counter()}
+    save_query_json = {
+        "event_id": event_id,
+        "out_len": len(output["text"][0]),
+        "out_len_expected": int(out_num),
+        "in_len": int(in_num),
+        "sampled_in_num": int(sampled_in_num),
+        "sampled_out_len": int(sampled_out_num),
+        "first_chunk_time": first_chunk_time,
+        "total_chunk_time": total_chunk_time,
+        "record_time": time.perf_counter()
+    }
 
     with open(logger.log_path, "a") as f:
         f.write("\n")
