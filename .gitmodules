@@ -1,0 +1,3 @@
+[submodule "3rdparty/StepMesh"]
+	path = 3rdparty/StepMesh
+	url = https://github.com/stepfun-ai/StepMesh
