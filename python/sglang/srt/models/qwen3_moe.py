@@ -75,7 +75,9 @@ from sglang.srt.two_batch_overlap import MaybeTboDeepEPDispatcher
 from sglang.srt.utils import DeepEPMode, add_prefix, is_cuda, is_non_idle_and_non_empty
 from sglang.srt.layers.afd_type import AFDPerspective
 from sglang.srt.layers.afd import (
-    AFDCommunicator, AFDProxyAttention, AFDProxyMLP,
+    AFDCommunicator,
+    AFDProxyAttention,
+    AFDProxyMLP,
     get_afd_perspective,
 )
 
@@ -109,8 +111,7 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
         )
 
         self.experts = get_moe_impl_class()(
-            num_experts=config.num_experts
-            + global_server_args_dict["ep_num_redundant_experts"],
+            num_experts=config.num_experts + global_server_args_dict["ep_num_redundant_experts"],
             top_k=config.num_experts_per_tok,
             layer_id=layer_id,
             hidden_size=config.hidden_size,
@@ -325,7 +326,7 @@ class Qwen3MoeAttention(nn.Module):
         self.head_dim = head_dim or hidden_size // self.total_num_heads
         self.q_size = self.num_heads * self.head_dim
         self.kv_size = self.num_kv_heads * self.head_dim
-        self.scaling = self.head_dim**-0.5
+        self.scaling = self.head_dim ** -0.5
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
         self.tp_rank = get_tensor_model_parallel_rank()
@@ -533,9 +534,10 @@ class Qwen3MoeDecoderLayer(nn.Module):
 
         if afd_perspective is not None:
             self.layer_communicator = AFDCommunicator(
-                    layer_communicator = self.layer_communicator,
-                    perspective=afd_perspective,
-                    layer_id=layer_id)
+                layer_communicator=self.layer_communicator,
+                perspective=afd_perspective,
+                layer_id=layer_id
+            )
 
     def forward_afd_A(
         self,
@@ -543,7 +545,7 @@ class Qwen3MoeDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
         residual: Optional[torch.Tensor],
-    )-> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch
@@ -567,7 +569,7 @@ class Qwen3MoeDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
         residual: torch.Tensor,
-    )-> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         hidden_states = self.mlp(hidden_states, forward_batch)
 
@@ -842,9 +844,9 @@ class Qwen3MoeForCausalLM(nn.Module):
                 layer_id is not None
                 and hasattr(self.model, "start_layer")
                 and (
-                    layer_id < self.model.start_layer
-                    or layer_id >= self.model.end_layer
-                )
+                layer_id < self.model.start_layer
+                or layer_id >= self.model.end_layer
+            )
             ):
                 continue
 

@@ -44,12 +44,15 @@ from sglang.srt.layers.communicator import (
     ScatterMode,
 )
 
+
 class AFDForwardStage(Enum):
     AFD_FORWARD_STAGE_A = auto()
     AFD_FORWARD_STAGE_F = auto()
 
+
 class AFDStageScheduleGenerator:
     Schedule = List[Tuple[AFDForwardStage, int, int]]
+
     @staticmethod
     def ffn_stage(num_layers: int, m_stage: int) -> Schedule:
         schedule = []
@@ -57,6 +60,7 @@ class AFDStageScheduleGenerator:
             schedule.append((AFDForwardStage.AFD_FORWARD_STAGE_A, l, m))
             schedule.append((AFDForwardStage.AFD_FORWARD_STAGE_F, l, m))
         return schedule
+
     @staticmethod
     def attn_stage(num_layers: int, m_stage: int) -> Schedule:
         schedule = []
@@ -73,6 +77,7 @@ class AFDStageScheduleGenerator:
                 schedule.append((AFDForwardStage.AFD_FORWARD_STAGE_A, l, m))
         return schedule
 
+
 class FifoTensorCommunicator(ABC):
     @abstractmethod
     def recv_tensor(self) -> torch.Tensor:
@@ -81,6 +86,7 @@ class FifoTensorCommunicator(ABC):
     @abstractmethod
     def send_tensor(self, x: torch.Tensor):
         raise NotImplementedError
+
 
 class ZMQSimpleTensorCommunicator(FifoTensorCommunicator):
     def __init__(self, afd_perspective: AFDPerspective):
@@ -137,6 +143,7 @@ class ZMQSimpleTensorCommunicator(FifoTensorCommunicator):
         socket = self.get_push_socket()
         socket.send_pyobj(x)
 
+
 class StepMeshTensorCache(object):
     def __init__(self):
         self.push_tensor = None
@@ -146,6 +153,7 @@ class StepMeshTensorCache(object):
         self.pull_key = 0
 
         self.h = None
+
 
 def stepmesh_scheduler():
     os.environ['DMLC_ROLE'] = 'scheduler'
@@ -161,6 +169,7 @@ def stepmesh_scheduler():
 
     f.stop()
 
+
 class StepMeshTensorCommunicator(FifoTensorCommunicator):
     def __init__(self, afd_perspective: AFDPerspective):
         self.perspective = afd_perspective
@@ -171,7 +180,7 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
 
         self.start_stepmesh_scheduler()
 
-        time.sleep(10) # wait scheduler
+        time.sleep(10)  # wait scheduler
 
         logger.info("%s init..." % os.environ['DMLC_ROLE'])
         f.init()
@@ -218,13 +227,13 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
 
         gpu = '%s' % torch.cuda.current_device()
 
-        self.env_def('DMLC_NODE_RANK',    '0')
-        self.env_def('DMLC_NUM_SERVER',   '1')
-        self.env_def('DMLC_NUM_WORKER',   '1')
-        self.env_def('DMLC_GROUP_SIZE',   '1')
+        self.env_def('DMLC_NODE_RANK', '0')
+        self.env_def('DMLC_NUM_SERVER', '1')
+        self.env_def('DMLC_NUM_WORKER', '1')
+        self.env_def('DMLC_GROUP_SIZE', '1')
         self.env_def('DMLC_PS_ROOT_PORT', '8123')
-        self.env_def('DMLC_ENABLE_RDMA',  'ibverbs')
-        self.env_def('STEPMESH_GPU',      gpu)
+        self.env_def('DMLC_ENABLE_RDMA', 'ibverbs')
+        self.env_def('STEPMESH_GPU', gpu)
 
         if afd_is_attn():
             os.environ['DMLC_ROLE'] = 'worker'
@@ -276,10 +285,11 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
         t.push_tensor.copy_(x)
 
         h = self.f.push_pull(
-                [t.push_tensor],
-                [t.push_key],
-                [t.pull_tensor],
-                [t.pull_key])
+            [t.push_tensor],
+            [t.push_key],
+            [t.pull_tensor],
+            [t.pull_key]
+        )
 
         t.h = h
 
@@ -345,6 +355,7 @@ class StepMeshTensorCommunicator(FifoTensorCommunicator):
         else:
             self.ffn_send(x)
 
+
 @cache
 def get_tensor_communicator() -> FifoTensorCommunicator:
     afd_perspective = get_afd_perspective()
@@ -356,19 +367,24 @@ def get_tensor_communicator() -> FifoTensorCommunicator:
     else:
         raise NotImplementedError
 
-def get_afd_mirco_batch() -> int:
-    afd_mirco_batch = global_server_args_dict.get("afd_mirco_batch")
-    return afd_mirco_batch
+
+def get_num_micro_batch() -> int:
+    num_mirco_batch = global_server_args_dict.get("afd_mirco_batch")
+    return num_mirco_batch
+
 
 def get_afd_perspective() -> Optional[AFDPerspective]:
     afd_perspective = global_server_args_dict.get("afd_perspective")
     return afd_perspective
 
+
 def afd_is_ffn():
     return get_afd_perspective() == AFDPerspective.AFD_PERSPECTIVE_FFN
 
+
 def afd_is_attn():
     return get_afd_perspective() == AFDPerspective.AFD_PERSPECTIVE_ATTN
+
 
 def model_forward_afd_split_inputs(
     layers,
@@ -383,7 +399,7 @@ def model_forward_afd_split_inputs(
         residual: torch.Tensor,
         positions: torch.Tensor,
         forward_batch: ForwardBatch,
-        ) -> List[Dict]:
+    ) -> List[Dict]:
         return [
             dict(
                 **_model_forward_filter_inputs(
@@ -456,6 +472,7 @@ def model_forward_afd_split_inputs(
 
     return [_post_transform(**inputs) for inputs in inputs_arr]
 
+
 def model_forward_afd(
     layers,
     positions: torch.Tensor,
@@ -465,7 +482,7 @@ def model_forward_afd(
     input_data_scatter_mode: ScatterMode,
 ):
     num_layers = len(layers)
-    m_stage = get_afd_mirco_batch()
+    m_stage = get_num_micro_batch()
 
     input_arrs = model_forward_afd_split_inputs(
         layers=layers,
@@ -492,10 +509,11 @@ def model_forward_afd(
             inputs_args["residual"],
         )
         stage_outputs[AFDForwardStage.AFD_FORWARD_STAGE_A].append(
-            dict (
-            hidden_states = hidden_states,
-            residual = residual,
-        ))
+            dict(
+                hidden_states=hidden_states,
+                residual=residual,
+            )
+        )
 
     def forward_F(layer_id: int, mirco_batch_idx: int):
         inputs_args = stage_outputs[AFDForwardStage.AFD_FORWARD_STAGE_A].popleft()
@@ -505,14 +523,15 @@ def model_forward_afd(
             inputs_args["residual"],
         )
         stage_outputs[AFDForwardStage.AFD_FORWARD_STAGE_F].append(
-            dict (
-            hidden_states = hidden_states,
-            residual = residual,
-        ))
+            dict(
+                hidden_states=hidden_states,
+                residual=residual,
+            )
+        )
 
     stage_executors = {
-        AFDForwardStage.AFD_FORWARD_STAGE_A : forward_A,
-        AFDForwardStage.AFD_FORWARD_STAGE_F : forward_F,
+        AFDForwardStage.AFD_FORWARD_STAGE_A: forward_A,
+        AFDForwardStage.AFD_FORWARD_STAGE_F: forward_F,
     }
 
     pipeline_stages = (
@@ -523,12 +542,17 @@ def model_forward_afd(
 
     for stage in pipeline_stages:
         type, *args = stage
-        stage_executors.get(type)(*args)
+        stage_executors.get(type)(*args) #
 
     try:
         results = [stage_outputs[AFDForwardStage.AFD_FORWARD_STAGE_F].popleft() for _ in range(m_stage)]
     except IndexError:
         raise ValueError("model_forward_afd: impossible path, a potential implementation bug?")
+
+    # independent launch, no explict barrier
+    # micro batch 0 (stream 0): layer 1 -> layer 2 -> ...
+    # micro batch 1 (stream 1): layer 1 -> layer 2 -> ...
+    # micro batch 2 (stream 3): layer 1 -> layer 2 -> ...
 
     all_hidden_states, all_residual = zip(
         *((res["hidden_states"], res["residual"]) for res in results)
@@ -539,12 +563,19 @@ def model_forward_afd(
         torch.cat(all_residual, dim=0) if afd_is_attn() else None,
     )
 
+
 class AFDCommunicator(LayerCommunicator):
-    def __init__(self, layer_communicator: LayerCommunicator, perspective: AFDPerspective, layer_id: int):
+    def __init__(
+        self,
+        layer_communicator: LayerCommunicator,
+        perspective: AFDPerspective,
+        layer_id: int
+    ):
         self.perspective = perspective
         self.layer_communicator = layer_communicator
         self.layer_id = layer_id
         pass
+
     def prepare_attn(
         self,
         hidden_states: torch.Tensor,
@@ -579,6 +610,7 @@ class AFDCommunicator(LayerCommunicator):
         forward_batch: ForwardBatch,
     ):
         if self.perspective == AFDPerspective.AFD_PERSPECTIVE_FFN:
+            # e2a
             get_tensor_communicator().send_tensor(hidden_states)
             return hidden_states, residual
 
@@ -589,15 +621,21 @@ class AFDCommunicator(LayerCommunicator):
         )
         return hidden_states, residual
 
+
 class AFDProxyAttention(nn.Module):
     def forward(
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
-        forward_batch: ForwardBatch) -> torch.Tensor:
+        forward_batch: ForwardBatch
+    ) -> torch.Tensor:
         return hidden_states
 
+
 class AFDProxyMLP(nn.Module):
-    def forward(self, hidden_states: torch.Tensor,
-                forward_batch: Optional[ForwardBatch] = None) -> torch.Tensor:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        forward_batch: Optional[ForwardBatch] = None
+    ) -> torch.Tensor:
         return hidden_states
